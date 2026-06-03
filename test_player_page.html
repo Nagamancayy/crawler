@@ -1,0 +1,188 @@
+<html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <title>Chek in sama ukhti Dzzzra 3</title>
+        <link rel="prefetch" href="https://vidzp.com/embed.php?bucket=temporary&amp;id=p4wthn6p0pro">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js" integrity="sha512-bLT0Qm9VnAYZDflyKcBaQ2gg0hSYNQrJ8RilYldYQ1FxQYoCLtUjuuRuZo+fjqhx/qtq/1itJ0C2ejDxltZVFg==" crossorigin="anonymous"></script>
+
+        <style>
+            html, body {
+                margin: 0;
+                padding: 0;
+                width: 100%;
+                height: 100%;
+                background: #000;
+                overflow: hidden;
+            }
+
+            .video-content,
+            #player {
+                width: 100%;
+                height: 100%;
+            }
+
+            .vv-player {
+                width: 100%;
+                height: 100%;
+                border: 0;
+                display: block;
+            }
+
+            .video-link {
+                display: block;
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                position: relative;
+                background-color: #000;
+                cursor: pointer;
+            }
+
+            .video-link .thumbnail {
+                width: 100vw;
+                height: 100vh;
+                object-fit: contain;
+                object-position: center;
+                display: block;
+            }
+
+            .video-link::after {
+                content: "";
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                border-radius: 50%;
+                transform: translate(-50%, -50%);
+                background: #fe6081;
+                width: 48px;
+                height: 48px;
+                background-image: url(data:image/svg+xml;base64,PHN2ZyAgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiAgd2lkdGg9IjI0IiAgaGVpZ2h0PSIyNCIgIHZpZXdCb3g9IjAgMCAyNCAyNCIgIGZpbGw9IiNmZmYiICBjbGFzcz0iaWNvbiBpY29uLXRhYmxlciBpY29ucy10YWJsZXItZmlsbGVkIGljb24tdGFibGVyLXBsYXllci1wbGF5Ij48cGF0aCBzdHJva2U9Im5vbmUiIGQ9Ik0wIDBoMjR2MjRIMHoiIGZpbGw9Im5vbmUiLz48cGF0aCBkPSJNNiA0djE2YTEgMSAwIDAgMCAxLjUyNCAuODUybDEzIC04YTEgMSAwIDAgMCAwIC0xLjcwNGwtMTMgLThhMSAxIDAgMCAwIC0xLjUyNCAuODUyeiIgLz48L3N2Zz4=);
+                background-position: center;
+                background-repeat: no-repeat;
+                background-size: 24px;
+                filter: drop-shadow(0 0 10px rgba(0, 0, 0, .4));
+            }
+        </style>
+
+        <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32x32.webp">
+    </head>
+
+    <body id="videq">
+        <script type="text/javascript">
+            var _0x4fca91=function(a,b){return "placeholder_anti_debug"}; 
+        </script>
+
+        <div class="video-content" id="vv-player">
+            <div id="player">
+                <div class="video-link">
+                    <img class="thumbnail" src="https://i.vid30s.com/image/mzYF9ikr1Q.jpg" alt="Video thumbnail">
+                </div>
+            </div>
+        </div>
+
+        <script>
+        (function () {
+            const videoId    = "p4wthn6p0pro";
+            const viewToken  = "eyJpZCI6InA0d3RobjZwMHBybyIsImlhdCI6MTc4MDUxMDc4MSwibiI6IjBhZTc2NzJlN2UwNzNjNWE0MjVkZDkyOGExZDA5YTQ5In0.5f41dcb5b66cf174b63305e033e63aa19bb852d139c1cfe6201f4130bda2afd7";
+            const playerPath = "https://vidzp.com/embed.php?bucket=temporary\u0026id=p4wthn6p0pro";
+            const timer      = 6e4;
+
+            let trackingStarted = false;
+
+            const fpPromise = import("https://openfpcdn.io/fingerprintjs/v3")
+                .then(function (mod) {
+                    return mod.load();
+                })
+                .catch(function () {
+                    return null;
+                });
+
+            async function detectAdBlock() {
+                try {
+                    await fetch("https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js", {
+                        method: "HEAD",
+                        mode: "no-cors",
+                        cache: "no-store"
+                    });
+
+                    return false;
+                } catch (e) {
+                    return true;
+                }
+            }
+
+            async function sendAclck() {
+                let fp = "";
+                let bot = "0";
+
+                try {
+                    const fpAgent = await fpPromise;
+
+                    if (fpAgent) {
+                        const result = await fpAgent.get();
+                        fp = result.visitorId || "";
+                        bot = result.bot ? "1" : "0";
+                    }
+                } catch (e) {}
+
+                const params = new URLSearchParams();
+
+                params.set("id", videoId);
+                params.set("vt", viewToken);
+                params.set("fp", fp);
+                params.set("bot", bot);
+                params.set("mobile", /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ? "1" : "0");
+                params.set("touch", ("ontouchstart" in window) ? "1" : "0");
+                params.set("screen", window.screen ? (screen.width + "x" + screen.height) : "");
+                params.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone || "");
+                params.set("lang", navigator.language || "");
+
+                try {
+                    await fetch("/aclck", {
+                        method: "POST",
+                        credentials: "same-origin",
+                        keepalive: true,
+                        headers: {
+                            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                            "X-Requested-With": "XMLHttpRequest"
+                        },
+                        body: params.toString()
+                    });
+                } catch (e) {
+                    console.warn("ACLCK failed", e);
+                }
+            }
+
+            async function initPlayerClick() {
+                const adBlocked = await detectAdBlock();
+
+                $(".video-link").one("click", function () {
+                    const player = $("#player");
+
+                    if (adBlocked) {
+                        player.html(
+                            '<iframe class="vv-player" src="' + playerPath + '" frameborder="0" allowfullscreen="no"></iframe>'
+                        );
+                    } else {
+                        player.html(
+                            '<iframe class="vv-player" src="' + playerPath + '" frameborder="0" allowfullscreen></iframe>'
+                        );
+                    }
+
+                    if (trackingStarted) {
+                        return;
+                    }
+
+                    trackingStarted = true;
+
+                    if (videoId && videoId !== "0" && videoId !== "null") {
+                        setTimeout(sendAclck, 20000);
+                    }
+                });
+            }
+
+            initPlayerClick();
+        })();
+        </script>
+    <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a060b51f78a800cc',t:'MTc4MDUxMDc4MQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>

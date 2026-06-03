@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Chek in sama ukhti Dzzzra 3</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="stylesheet" href="/player.css" />
+<style>
+@import url(https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap);
+body,html{font-family:Roboto,sans-serif;margin:0;padding:0;height:100%;background:#000}
+:root{--plyr-color-main:#fe6081!important}
+.plyr--full-ui input[type=range]::-webkit-slider-thumb{background:#fe6081!important}
+.plyr--full-ui input[type=range]::-moz-range-thumb{background:#fe6081!important}
+.plyr--full-ui input[type=range]::-ms-thumb{background:#fe6081!important}
+.plyr__control--overlaid,.plyr__progress__fill{background:#fe6081!important}
+.player-container{position:fixed;inset:0;width:100vw;height:100vh;background:#000}
+.player-container .plyr,.plyr__video-wrapper,video{width:100%;height:100%}
+video{object-fit:contain;background:#000;display:block}
+.plyr__controls{opacity:1!important;visibility:visible!important}
+
+.plyr{
+  position: relative;
+}
+ 
+.plyr__top-controls{
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 4;
+ 
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity .18s ease, transform .18s ease;
+  pointer-events: auto;
+}
+ 
+.plyr--full-ui.plyr--hide-controls .plyr__top-controls{
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;  
+}
+ 
+.plyr__top-controls,
+.plyr__top-controls .plyr__control{
+  color: #fff !important;
+}
+ 
+.plyr__top-controls .plyr__control{
+  background: rgba(0,0,0,.1);
+  border-radius: 10px;
+  padding: 7px;
+}
+ 
+.plyr__top-controls .plyr__control:hover{
+  background: rgba(0,0,0,.75);
+}
+ 
+
+
+
+</style>
+
+</head>
+<body>
+
+<div class="player-container">
+  <video id="player" class="plyr" playsinline controls preload="none"
+         poster="https://i.vid30s.com/image/mzYF9ikr1Q.jpg">
+    <source src="https://m.imgvdy.com/mzYF9ikr1Q-2XoPIu6PKA" type="video/mp4"/>
+  </video>
+</div>
+<script src="/player.js"></script>
+<script>
+const VIDEO_ID = "p4wthn6p0pro";
+const video = document.getElementById('player');
+const STORAGE_KEY = "plyr_progress_" + VIDEO_ID;
+const player = new Plyr(video, {
+  controls: ['play-large','play','progress','current-time','duration','mute','settings','pip','fullscreen'],
+  hideControls: true,
+  clickToPlay: true,
+  fullscreen: { enabled: true, fallback: true, iosNative: true }
+});
+
+      
+player.on('loadedmetadata', () => {
+  const savedTime = localStorage.getItem(STORAGE_KEY);
+
+  if (savedTime && !isNaN(savedTime)) {
+   
+    if (savedTime > 5 && savedTime < player.duration - 10) {
+      player.currentTime = Number(savedTime);
+    }
+  }
+});
+
+ 
+let lastSaved = 0;
+
+player.on('timeupdate', () => {
+  const current = Math.floor(player.currentTime);
+
+  if (current - lastSaved >= 3) {
+    localStorage.setItem(STORAGE_KEY, current);
+    lastSaved = current;
+  }
+});
+
+player.on('ended', () => {
+  localStorage.removeItem(STORAGE_KEY);
+});
+
+
+
+
+player.on('ready', () => {
+  const plyr = player.elements.container;
+
+  let topControls = document.createElement('div');
+  topControls.className = 'plyr__top-controls';
+
+  const muteBtn = plyr.querySelector('[data-plyr="mute"]');
+  const settingsBtn = plyr.querySelector('[data-plyr="settings"]');
+
+
+  if (muteBtn) topControls.appendChild(muteBtn);
+  if (settingsBtn) topControls.appendChild(settingsBtn);
+
+  plyr.appendChild(topControls);
+});
+
+</script>
+<script>
+(function () {
+  const ALLOW = [
+    "vidzp.com",
+    "vidoy.com","www.vidoy.com",
+    "admin.vidoy.com"
+  ];
+
+
+  const REDIRECT_TO = "https://vidzp.com/e/p4wthn6p0pro"; // ganti sesuai kebutuhan
+
+
+  // 1) harus di iframe
+  if (window.top === window.self) {
+    location.replace(REDIRECT_TO);
+    return;
+  }
+
+  // 2) cek referrer host (domain yang nge-embed)
+  const ref = document.referrer || "";
+  let host = "";
+  try { host = new URL(ref).hostname.toLowerCase(); } catch(e) {}
+
+  const ok = ALLOW.some(d => host === d || host.endsWith("." + d));
+  if (!ok) {
+    location.replace(REDIRECT_TO);
+    return;
+  }
+
+})();
+</script>
+
+<script>
+(function () {
+
+  const NO_ADS = [
+    "vidoy.com",
+    "www.vidoy.com",
+    "admin.vidoy.com"
+  ];
+
+
+  const AD_SRC = "//vn.fascescrewet.com/ryHZcykVTFwLWLf/121025";
+
+  function getHost(ref) {
+    try { return new URL(ref).hostname.toLowerCase(); } catch (e) { return ""; }
+  }
+
+  function isNoAdsHost(host) {
+
+    return NO_ADS.some(d => host === d);
+
+  }
+
+  const ref = document.referrer || "";
+  const host = getHost(ref);
+
+  const shouldLoadAds = (!ref) || (host && !isNoAdsHost(host)) || (!host);
+
+  if (!shouldLoadAds) return;
+
+  const s = document.createElement("script");
+
+        s.setAttribute("data-cfasync", "false");
+        
+        s.async = true;
+        s.type = "text/javascript";
+        s.src = AD_SRC;
+        
+        (document.head || document.documentElement).appendChild(s);
+})();
+</script>
+
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a060b592e87fd59c',t:'MTc4MDUxMDc5OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
