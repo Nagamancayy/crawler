@@ -286,7 +286,6 @@ class CrawlEngine:
             response = await client.get(url, headers=headers)
             status_code = response.status_code
             
-            # Extract headers and body diagnostics
             resp_headers = dict(response.headers)
             server_header = resp_headers.get("server", "Unknown Server")
             content_type = resp_headers.get("content-type", "Unknown Content-Type")
@@ -298,10 +297,34 @@ class CrawlEngine:
             page_title = soup.title.string.strip() if soup.title else "No Title"
             self.log("VISIT", f"Page Parsed -> Title: '{page_title}'")
 
+            # HTML Structure Diagnostic Logs
+            self.log("VISIT", f"[DEBUG] HTML length: {body_length} chars | Title: '{page_title}'")
+            
+            iframes = soup.find_all("iframe")
+            self.log("VISIT", f"[DEBUG] Found {len(iframes)} iframe(s)")
+            for idx, iframe in enumerate(iframes):
+                self.log("VISIT", f"[DEBUG] Iframe {idx}: src='{iframe.get('src')}', class='{iframe.get('class')}', id='{iframe.get('id')}'")
+                
+            scripts = soup.find_all("script")
+            self.log("VISIT", f"[DEBUG] Found {len(scripts)} script(s)")
+            for idx, script in enumerate(scripts):
+                src = script.get("src")
+                if src:
+                    self.log("VISIT", f"[DEBUG] Script {idx} (External): src='{src}'")
+                else:
+                    content = script.string or ""
+                    self.log("VISIT", f"[DEBUG] Script {idx} (Inline): length={len(content)} chars | preview: {content[:100].strip().replace('\n', ' ')}...")
+                    
+            videos = soup.find_all("video")
+            self.log("VISIT", f"[DEBUG] Found {len(videos)} video tags")
+            for idx, vid in enumerate(videos):
+                self.log("VISIT", f"[DEBUG] Video {idx}: src='{vid.get('src')}', class='{vid.get('class')}'")
+
             # Check for Cloudflare / Turnstile challenges
-            if "cloudflare" in response.text.lower() or "ddos-guard" in response.text.lower() or "turnstile" in response.text.lower() or status_code in [403, 503]:
+            # Note: Do not log "Blocked" simply because "cloudflare" is in the HTML, check for challenge keywords only
+            if "ddos-guard" in response.text.lower() or "turnstile" in response.text.lower() or "cf-challenge" in response.text.lower() or status_code in [403, 503]:
                 cf_ray = resp_headers.get("cf-ray", "N/A")
-                self.log("ERROR", f"Blocked/Challenge Detected! Title: '{page_title}' | CF-Ray: {cf_ray} | Body Snippet: {response.text[:150].strip().replace('\n', ' ')}...")
+                self.log("ERROR", f"Challenge Detected! Title: '{page_title}' | CF-Ray: {cf_ray} | Snippet: {response.text[:150].strip().replace('\n', ' ')}...")
                 
             if status_code >= 400:
                 self.log("ERROR", f"HTTP Error Status {status_code} returned for {url}. Crawl aborted on this node.")
