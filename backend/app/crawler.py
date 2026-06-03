@@ -156,7 +156,7 @@ class CrawlEngine:
         finally:
             db.close()
 
-    def save_video(self, page_url: str, video_url: str, type_: str):
+    def save_video(self, page_url: str, video_url: str, type_: str, thumbnail_url: str = None):
         db = self.db_session_creator()
         try:
             existing = db.query(VideoSource).filter_by(crawl_id=self.session_id, video_url=video_url).first()
@@ -165,7 +165,8 @@ class CrawlEngine:
                     crawl_id=self.session_id,
                     page_url=page_url,
                     video_url=video_url,
-                    type=type_
+                    type=type_,
+                    thumbnail_url=thumbnail_url
                 )
                 db.add(db_video)
                 db.commit()
@@ -297,6 +298,29 @@ class CrawlEngine:
             page_title = soup.title.string.strip() if soup.title else "No Title"
             self.log("VISIT", f"Page Parsed -> Title: '{page_title}'")
 
+            # HTML Structure Diagnostic Logs
+            self.log("VISIT", f"[DEBUG] HTML length: {body_length} chars | Title: '{page_title}'")
+            
+            iframes = soup.find_all("iframe")
+            self.log("VISIT", f"[DEBUG] Found {len(iframes)} iframe(s)")
+            for idx, iframe in enumerate(iframes):
+                self.log("VISIT", f"[DEBUG] Iframe {idx}: src='{iframe.get('src')}', class='{iframe.get('class')}', id='{iframe.get('id')}'")
+                
+            scripts = soup.find_all("script")
+            self.log("VISIT", f"[DEBUG] Found {len(scripts)} script(s)")
+            for idx, script in enumerate(scripts):
+                src = script.get("src")
+                if src:
+                    self.log("VISIT", f"[DEBUG] Script {idx} (External): src='{src}'")
+                else:
+                    content = script.string or ""
+                    self.log("VISIT", f"[DEBUG] Script {idx} (Inline): length={len(content)} chars | preview: {content[:100].strip().replace('\n', ' ')}...")
+                    
+            videos = soup.find_all("video")
+            self.log("VISIT", f"[DEBUG] Found {len(videos)} video tags")
+            for idx, vid in enumerate(videos):
+                self.log("VISIT", f"[DEBUG] Video {idx}: src='{vid.get('src')}', class='{vid.get('class')}'")
+
             # Check for Cloudflare / Turnstile challenges
             if "ddos-guard" in response.text.lower() or "turnstile" in response.text.lower() or "cf-challenge" in response.text.lower() or status_code in [403, 503]:
                 cf_ray = resp_headers.get("cf-ray", "N/A")
@@ -307,22 +331,25 @@ class CrawlEngine:
                 self.save_failed_page(url, depth, f"HTTP {status_code} | Title: {page_title}")
                 return
                 
-            # 1. Scrape standard HTML5 video and source tags
+            # 1. Scrape standard HTML5 video and source tags (with optional poster/thumbnail)
             video_srcs = []
             for video in soup.find_all("video"):
+                poster = video.get("poster")
+                resolved_poster = urljoin(url, poster) if poster else None
+                
                 if video.get("src"):
-                    video_srcs.append(video.get("src"))
+                    video_srcs.append((video.get("src"), resolved_poster))
                 for src in video.find_all("source"):
                     if src.get("src"):
-                        video_srcs.append(src.get("src"))
+                        video_srcs.append((src.get("src"), resolved_poster))
             
-            for src in video_srcs:
+            for src, post_url in video_srcs:
                 resolved_src = urljoin(url, src)
                 vtype = get_video_type(resolved_src) or "MP4"
                 if resolved_src not in self.discovered_videos:
                     self.discovered_videos.add(resolved_src)
                     self.log("VIDEO_FOUND", f"Found {vtype} in DOM video tag: {resolved_src}")
-                    self.save_video(url, resolved_src, vtype)
+                    self.save_video(url, resolved_src, vtype, resolved_poster)
 
             # 2. Extract iframe embed players
             for iframe in soup.find_all("iframe", src=True):
@@ -367,30 +394,42 @@ class CrawlEngine:
                     # Fetch first redirect page (intermediate solved player page)
                     player_resp = await client.get(player_redirect_url, headers=headers)
                     if player_resp.status_code == 200:
+                        player_soup = BeautifulSoup(player_resp.text, "html.parser")
+                        
+                        # Extract thumbnail from intermediate solved player page
+                        thumb_url = None
+                        thumb_tag = player_soup.find("img", class_="thumbnail") or player_soup.find("img")
+                        if thumb_tag and thumb_tag.get("src"):
+                            thumb_url = urljoin(player_redirect_url, thumb_tag.get("src"))
+                            self.log("VISIT", f"[DEBUG] Found video thumbnail URL: {thumb_url}")
+                            
                         player_path_match = re.search(r"const\s+playerPath\s*=\s*['\"]([^'\"]+)['\"]", player_resp.text)
                         prefetch_match = re.search(r"<link\s+rel=['\"]prefetch['\"]\s+href=['\"]([^'\"]+)['\"]", player_resp.text)
                         
                         target_embed_url = None
                         if player_path_match:
-                            # Clean up escaped unicode ampersands
                             target_embed_url = player_path_match.group(1).replace(r"\u0026", "&")
                         elif prefetch_match:
-                            # Clean up HTML entities
                             target_embed_url = prefetch_match.group(1).replace("&amp;", "&")
                             
                         if target_embed_url:
-                            # Save the intermediate embed player address
                             if target_embed_url not in self.discovered_videos:
                                 self.discovered_videos.add(target_embed_url)
                                 self.log("VIDEO_FOUND", f"Found EMBED player: {target_embed_url}")
-                                self.save_video(url, target_embed_url, "EMBED")
+                                self.save_video(url, target_embed_url, "EMBED", thumb_url)
                                 
-                            # Fetch final third-party player page to extract the raw stream source URL
                             self.log("VISIT", f"Resolving stream sources in embed player -> GET {target_embed_url}")
                             embed_resp = await client.get(target_embed_url, headers=headers)
                             if embed_resp.status_code == 200:
                                 embed_soup = BeautifulSoup(embed_resp.text, "html.parser")
                                 final_sources = []
+                                
+                                # Check for video poster if we haven't found a thumbnail yet
+                                if not thumb_url:
+                                    video_tag = embed_soup.find("video")
+                                    if video_tag and video_tag.get("poster"):
+                                        thumb_url = urljoin(target_embed_url, video_tag.get("poster"))
+                                        self.log("VISIT", f"[DEBUG] Found video poster thumbnail URL: {thumb_url}")
                                 
                                 # Search for <video> and <source> tags
                                 for vid in embed_soup.find_all("video"):
@@ -403,7 +442,6 @@ class CrawlEngine:
                                 for src_url, mime_type in final_sources:
                                     resolved_src_url = urljoin(target_embed_url, src_url)
                                     
-                                    # Determine format based on mime type or URL attributes
                                     final_type = "MP4"
                                     if "mpegurl" in mime_type.lower() or "m3u8" in resolved_src_url.lower():
                                         final_type = "HLS"
@@ -415,7 +453,7 @@ class CrawlEngine:
                                     if resolved_src_url not in self.discovered_videos:
                                         self.discovered_videos.add(resolved_src_url)
                                         self.log("VIDEO_FOUND", f"Found direct stream source ({final_type}): {resolved_src_url}")
-                                        self.save_video(url, resolved_src_url, final_type)
+                                        self.save_video(url, resolved_src_url, final_type, thumb_url)
                 except Exception as e:
                     self.log("ERROR", f"Failed to resolve nested player elements: {str(e)}")
             

@@ -39,6 +39,33 @@ export default function ResultsTable({ videos, crawlId }) {
   const columns = useMemo(
     () => [
       {
+        accessorKey: 'thumbnail_url',
+        header: 'Thumbnail',
+        cell: (info) => {
+          const val = info.getValue();
+          return (
+            <div className="w-16 h-10 rounded-lg overflow-hidden border border-slate-800 bg-slate-950 flex items-center justify-center text-slate-600 shrink-0">
+              {val ? (
+                <img
+                  src={val}
+                  alt="Thumbnail"
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    const parent = e.target.parentElement;
+                    if (parent) {
+                      const icon = parent.querySelector('.fallback-icon');
+                      if (icon) icon.classList.remove('hidden');
+                    }
+                  }}
+                />
+              ) : null}
+              <Video size={16} className={`fallback-icon ${val ? 'hidden' : ''}`} />
+            </div>
+          );
+        },
+      },
+      {
         accessorKey: 'page_url',
         header: 'Source Page',
         cell: (info) => {
@@ -61,9 +88,10 @@ export default function ResultsTable({ videos, crawlId }) {
                   href={val}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-slate-600 hover:text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="text-slate-500 hover:text-slate-300 p-1 hover:bg-slate-900 rounded transition"
+                  title="Open Source Page"
                 >
-                  <ExternalLink size={12} />
+                  <ExternalLink size={14} />
                 </a>
               </div>
             );
@@ -79,35 +107,35 @@ export default function ResultsTable({ videos, crawlId }) {
           const val = info.getValue();
           const rowId = info.row.id;
           return (
-            <div className="flex items-center gap-3 group max-w-md md:max-w-2xl">
+            <div className="flex items-center gap-3 max-w-md md:max-w-2xl">
               <span className="text-slate-400 font-mono text-xs truncate block select-all flex-1" title={val}>
                 {val}
               </span>
-              <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   onClick={() => handleCopy(val, rowId)}
-                  className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-slate-300 transition"
+                  className="p-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-200 transition"
                   title="Copy Video URL"
                 >
-                  {copiedId === rowId ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                  {copiedId === rowId ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
                 </button>
                 <a
                   href={val}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="p-1 hover:bg-slate-800 rounded text-slate-500 hover:text-slate-300 transition"
+                  className="p-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-200 transition"
                   title="Open Video URL"
                 >
-                  <ExternalLink size={12} />
+                  <ExternalLink size={14} />
                 </a>
                 {info.row.original.type !== 'EMBED' && (
                   <a
                     href={downloadUrl(val)}
                     download
-                    className="p-1 hover:bg-slate-800 rounded text-emerald-500 hover:text-emerald-400 transition"
+                    className="p-1.5 bg-emerald-950/40 border border-emerald-800/30 hover:bg-emerald-900/40 rounded-lg text-emerald-400 hover:text-emerald-300 transition"
                     title="Download Pure Video"
                   >
-                    <Download size={12} />
+                    <Download size={14} />
                   </a>
                 )}
               </div>

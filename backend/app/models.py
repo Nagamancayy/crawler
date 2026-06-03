@@ -48,6 +48,7 @@ class VideoSource(Base):
     page_url = Column(String, nullable=False)
     video_url = Column(String, nullable=False)
     type = Column(String, nullable=False)  # MP4, HLS, DASH, WEBM, MOV, M4V, etc.
+    thumbnail_url = Column(String, nullable=True)
     discovered_at = Column(DateTime, default=datetime.utcnow)
 
     session = relationship("CrawlSession", back_populates="videos")

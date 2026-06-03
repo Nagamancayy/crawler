@@ -30,6 +30,7 @@ class VideoSourceResponse(BaseModel):
     page_url: str
     video_url: str
     type: str
+    thumbnail_url: Optional[str] = None
     discovered_at: datetime
 
     class Config:
