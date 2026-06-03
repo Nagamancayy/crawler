@@ -3,18 +3,24 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Load database URL from environment variable, fallback to local file
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", 
-    f"sqlite:///{os.path.join(DATABASE_DIR, '../crawler.db')}"
-)
+
+# Load database URL from environment variable, fallback to Vercel tmp or local path
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    if os.environ.get("VERCEL") or os.path.exists("/tmp"):
+        DATABASE_URL = "sqlite:////tmp/crawler.db"
+    else:
+        DATABASE_URL = f"sqlite:///{os.path.join(DATABASE_DIR, '../crawler.db')}"
 
 # Ensure database directory exists if using local SQLite path
 if DATABASE_URL.startswith("sqlite:///"):
     db_path = DATABASE_URL.replace("sqlite:///", "")
     db_dir = os.path.dirname(db_path)
-    if db_dir:
-        os.makedirs(db_dir, exist_ok=True)
+    if db_dir and not os.path.exists(db_dir):
+        try:
+            os.makedirs(db_dir, exist_ok=True)
+        except Exception:
+            pass
 
 engine = create_engine(
     DATABASE_URL, 

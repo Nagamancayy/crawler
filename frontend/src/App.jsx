@@ -37,7 +37,6 @@ export default function App() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const wsRef = useRef(null);
   const timerRef = useRef(null);
 
   const isRunning = session?.status === 'running';
@@ -77,7 +76,6 @@ export default function App() {
   useEffect(() => {
     fetchStatus();
     return () => {
-      stopWebSocket();
       stopTimer();
     };
   }, []);
@@ -86,16 +84,13 @@ export default function App() {
   useEffect(() => {
     if (isRunning) {
       startTimer();
-      startWebSocket();
     } else {
       stopTimer();
-      stopWebSocket();
     }
     return () => {
       stopTimer();
-      stopWebSocket();
     };
-  }, [isRunning, session?.id]);
+  }, [isRunning]);
 
   const startTimer = () => {
     stopTimer();
@@ -111,73 +106,10 @@ export default function App() {
     }
   };
 
-  const startWebSocket = () => {
-    stopWebSocket();
-    
-    try {
-      const ws = new WebSocket(getWsUrl());
-      wsRef.current = ws;
-
-      ws.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        if (message.crawl_id && session && message.crawl_id !== session.id) return;
-
-        if (message.type === 'log') {
-          setLogs((prev) => [...prev, message.data]);
-          
-          // Re-fetch videos if a video was discovered to keep table populated
-          if (message.data.level === 'VIDEO_FOUND') {
-            fetch(getApiUrl(`/crawl/results?crawl_id=${session?.id || message.crawl_id}`))
-              .then((r) => r.json())
-              .then((data) => setVideos(data || []))
-              .catch((err) => console.error('Error fetching dynamic video list:', err));
-          }
-        } else if (message.type === 'stats') {
-          setSession((prev) => ({
-            ...prev,
-            pages_crawled: message.data.pages_crawled,
-            pages_queued: message.data.pages_queued,
-            videos_found: message.data.videos_found,
-            status: message.data.status
-          }));
-          setElapsed(message.data.elapsed_time);
-        }
-      };
-
-      ws.onclose = () => {
-        console.log('WebSocket closed. Retrying context update...');
-      };
-      
-      ws.onerror = (err) => {
-        console.error('WebSocket error:', err);
-      };
-    } catch (err) {
-      console.error('Failed to instantiate WebSocket:', err);
-    }
-  };
-
-  const stopWebSocket = () => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-  };
-
-  // Start crawl trigger
+  // Start crawl trigger (Serverless SSE Streaming Reader)
   const handleStartCrawl = async (formData) => {
     try {
       setLoading(true);
-      const response = await fetch(getApiUrl('/crawl/start'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(formData)
-      });
-      const data = await response.json();
-      
-      // Reset dashboard stats for new run
-      setSession(data);
       setLogs([]);
       setVideos([]);
       setElapsed(0);
@@ -187,8 +119,85 @@ export default function App() {
         most_common_type: 'N/A',
         avg_speed: 0.0
       });
+
+      // Optimistically show as running
+      setSession({
+        status: 'running',
+        pages_crawled: 0,
+        pages_queued: 1,
+        videos_found: 0,
+        max_pages: formData.max_pages,
+        start_url: formData.url
+      });
+
+      const response = await fetch(getApiUrl('/crawl/start'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(formData)
+      });
+
+      if (!response.body) {
+        throw new Error('ReadableStream not supported in response');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        
+        // Save the last partial line back to the buffer
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(trimmed.substring(6));
+              
+              if (event.type === 'log') {
+                setLogs((prev) => [...prev, event.data]);
+                
+                // Fetch videos dynamically when a video is found
+                if (event.data.level === 'VIDEO_FOUND') {
+                  const resVideos = await fetch(getApiUrl(`/crawl/results?crawl_id=${event.data.crawl_id}`)).then((r) => r.json());
+                  setVideos(resVideos || []);
+                }
+              } else if (event.type === 'stats') {
+                setSession((prev) => ({
+                  ...prev,
+                  id: event.data.crawl_id,
+                  pages_crawled: event.data.pages_crawled,
+                  pages_queued: event.data.pages_queued,
+                  videos_found: event.data.videos_found,
+                  status: event.data.status
+                }));
+                setElapsed(event.data.elapsed_time);
+              } else if (event.type === 'complete') {
+                setSession(event.data.session);
+                setStats(event.data.stats);
+                setElapsed(event.data.elapsed_time);
+                
+                // Final sync
+                const resVideos = await fetch(getApiUrl(`/crawl/results?crawl_id=${event.data.session.id}`)).then((r) => r.json());
+                setVideos(resVideos || []);
+              }
+            } catch (e) {
+              console.error('Error parsing streaming event:', e);
+            }
+          }
+        }
+      }
     } catch (err) {
       console.error('Failed to start crawl:', err);
+      setSession((prev) => prev ? { ...prev, status: 'failed' } : null);
     } finally {
       setLoading(false);
     }

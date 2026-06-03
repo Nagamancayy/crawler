@@ -1,7 +1,8 @@
 import asyncio
 from datetime import datetime
 from urllib.parse import urlparse, urlunparse, urljoin
-from playwright.async_api import async_playwright
+import httpx
+from bs4 import BeautifulSoup
 from .models import CrawlSession, CrawledPage, VideoSource, CrawlLog
 
 def normalize_url(url: str) -> str:
@@ -11,7 +12,6 @@ def normalize_url(url: str) -> str:
         if path != '/' and path.endswith('/'):
             path = path[:-1]
         netloc = parsed.netloc.lower()
-        # Remove default ports to keep normalization consistent
         if ":" in netloc:
             parts = netloc.split(":")
             if (parsed.scheme == "http" and parts[1] == "80") or (parsed.scheme == "https" and parts[1] == "443"):
@@ -29,7 +29,7 @@ def is_same_domain(url: str, start_url: str) -> bool:
         return False
 
 def get_video_type(url: str) -> str:
-    url_lower = url.lower().split('?')[0] # ignore query params for extension check
+    url_lower = url.lower().split('?')[0]
     if url_lower.endswith('.mp4'):
         return 'MP4'
     elif url_lower.endswith('.m3u8'):
@@ -43,7 +43,6 @@ def get_video_type(url: str) -> str:
     elif url_lower.endswith('.m4v'):
         return 'M4V'
     
-    # Check if the string has query parameters but contains the media types
     full_lower = url.lower()
     if '.mp4' in full_lower:
         return 'MP4'
@@ -158,7 +157,6 @@ class CrawlEngine:
     def save_video(self, page_url: str, video_url: str, type_: str):
         db = self.db_session_creator()
         try:
-            # Check if video already saved for this session
             existing = db.query(VideoSource).filter_by(crawl_id=self.session_id, video_url=video_url).first()
             if not existing:
                 db_video = VideoSource(
@@ -222,24 +220,16 @@ class CrawlEngine:
         
         self.log("VISIT", f"Starting BFS crawl from URL: {self.start_url} (Max Depth: {self.max_depth}, Max Pages: {self.max_pages}, Workers: {self.concurrent_workers})")
 
-        async with async_playwright() as p:
-            # Configure Playwright launch arguments for Docker compatibility
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-            )
-            
+        # Set up an HTTPX client connection pool shared across workers
+        limits = httpx.Limits(max_keepalive_connections=self.concurrent_workers, max_connections=self.concurrent_workers * 2)
+        async with httpx.AsyncClient(limits=limits, verify=False, follow_redirects=True, timeout=10.0) as client:
             workers = []
             for i in range(self.concurrent_workers):
-                task = asyncio.create_task(self.worker(browser, i))
+                task = asyncio.create_task(self.worker(client, i))
                 workers.append(task)
                 
-            # Wait for crawler completion or shutdown event
             while not self.shutdown_event.is_set():
-                await asyncio.sleep(0.5)
-                # Crawler terminates when:
-                # 1. Queue is empty AND all workers are idle
-                # 2. Max pages limit reached
+                await asyncio.sleep(0.1)
                 if self.queue.empty() and self.active_workers == 0:
                     break
                 if self.pages_crawled_count >= self.max_pages:
@@ -250,18 +240,16 @@ class CrawlEngine:
             for task in workers:
                 task.cancel()
             await asyncio.gather(*workers, return_exceptions=True)
-            await browser.close()
             
         self.log("VISIT", f"Crawl finished. Crawled {self.pages_crawled_count} pages, found {len(self.discovered_videos)} video sources.")
         self.update_session_status("completed")
         self.update_stats()
 
-    async def worker(self, browser, worker_id: int):
+    async def worker(self, client: httpx.AsyncClient, worker_id: int):
         while not self.shutdown_event.is_set():
             if self.pages_crawled_count >= self.max_pages:
                 break
             try:
-                # Polling queue with a short timeout to prevent hang on cancel
                 url, depth = await asyncio.wait_for(self.queue.get(), timeout=1.0)
             except asyncio.TimeoutError:
                 continue
@@ -270,7 +258,7 @@ class CrawlEngine:
                 
             self.active_workers += 1
             try:
-                await self.crawl_page(browser, url, depth)
+                await self.crawl_page(client, url, depth)
             except asyncio.CancelledError:
                 self.queue.task_done()
                 self.active_workers -= 1
@@ -282,79 +270,58 @@ class CrawlEngine:
                 self.active_workers -= 1
                 self.update_stats()
 
-    async def crawl_page(self, browser, url: str, depth: int):
-        # Open separate context for cookie/session isolation
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            ignore_https_errors=True
-        )
-        page = await context.new_page()
-        
-        # Local video tracking to prevent redundant prints on the same page
-        discovered_here = set()
-        
-        async def handle_request(request):
-            req_url = request.url
-            vtype = get_video_type(req_url)
-            if vtype and req_url not in self.discovered_videos and req_url not in discovered_here:
-                discovered_here.add(req_url)
-                self.discovered_videos.add(req_url)
-                self.log("VIDEO_FOUND", f"Found {vtype} in network traffic: {req_url}")
-                self.save_video(url, req_url, vtype)
-                
-        page.on("request", handle_request)
-        
+    async def crawl_page(self, client: httpx.AsyncClient, url: str, depth: int):
         self.log("VISIT", f"Crawling page: {url} at depth {depth}")
         
         status_code = None
         try:
-            # Navigate to URL
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-            if response:
-                status_code = response.status
-                
-            # Extra wait for network idle to catch slow-loading streams/assets
-            try:
-                await page.wait_for_load_state("networkidle", timeout=3000)
-            except Exception:
-                pass  # Carry on even if network doesn't go fully idle
-                
-            # Extract Video elements from DOM
-            video_urls = await page.evaluate("""() => {
-                const urls = [];
-                document.querySelectorAll('video').forEach(v => {
-                    if (v.src) urls.push(v.src);
-                    v.querySelectorAll('source').forEach(s => {
-                        if (s.src) urls.push(s.src);
-                    });
-                });
-                return urls;
-            }""")
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+            }
             
-            for src in video_urls:
+            response = await client.get(url, headers=headers)
+            status_code = response.status_code
+            
+            if status_code >= 400:
+                self.log("ERROR", f"HTTP {status_code} returned for {url}")
+                self.save_failed_page(url, depth, f"HTTP Error {status_code}")
+                return
+                
+            # Parse DOM with BeautifulSoup
+            soup = BeautifulSoup(response.text, "html.parser")
+            
+            # 1. Scrape video and source elements
+            video_srcs = []
+            for video in soup.find_all("video"):
+                if video.get("src"):
+                    video_srcs.append(video.get("src"))
+                for src in video.find_all("source"):
+                    if src.get("src"):
+                        video_srcs.append(src.get("src"))
+            
+            for src in video_srcs:
                 resolved_src = urljoin(url, src)
                 vtype = get_video_type(resolved_src)
                 if vtype and resolved_src not in self.discovered_videos:
                     self.discovered_videos.add(resolved_src)
                     self.log("VIDEO_FOUND", f"Found {vtype} in DOM video tag: {resolved_src}")
                     self.save_video(url, resolved_src, vtype)
-                    
-            # Extract Links for recursive BFS
-            links = await page.evaluate("""() => {
-                return Array.from(document.querySelectorAll('a'))
-                    .map(a => a.href)
-                    .filter(Boolean);
-            }""")
             
+            # 2. Extract anchor links
+            links = []
+            for a in soup.find_all("a", href=True):
+                links.append(a.get("href"))
+                
             self.save_crawled_page(url, depth, status_code)
             self.pages_crawled_count += 1
             
-            # Process hyperlinks
+            # Process links
             for raw_link in links:
                 resolved_link = urljoin(url, raw_link)
                 normalized_link = normalize_url(resolved_link)
                 
-                # Check if this hyperlink is itself a video
+                # Check if this link points directly to a video file
                 vtype = get_video_type(resolved_link)
                 if vtype:
                     if resolved_link not in self.discovered_videos:
@@ -363,20 +330,17 @@ class CrawlEngine:
                         self.save_video(url, resolved_link, vtype)
                     continue
                 
-                # Otherwise verify domain and queue recursively
+                # Otherwise, check domain & queue recursively
                 if is_same_domain(normalized_link, self.start_url):
                     if normalized_link not in self.visited:
                         self.visited.add(normalized_link)
                         if depth + 1 <= self.max_depth:
                             await self.queue.put((resolved_link, depth + 1))
                         else:
-                            self.log("SKIP_EXTERNAL", f"Skipped: path depth too deep {resolved_link}")
+                            self.log("SKIP_EXTERNAL", f"Skipped: depth limit reached {resolved_link}")
                 else:
                     self.log("SKIP_EXTERNAL", f"Skipped external domain: {resolved_link}")
                     
         except Exception as e:
             self.log("ERROR", f"Error during crawl of {url}: {str(e)}")
             self.save_failed_page(url, depth, str(e))
-        finally:
-            await page.close()
-            await context.close()
