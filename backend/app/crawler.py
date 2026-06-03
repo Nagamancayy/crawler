@@ -1,4 +1,5 @@
 import re
+import json
 import asyncio
 from datetime import datetime
 from urllib.parse import urlparse, urlunparse, urljoin
@@ -271,26 +272,42 @@ class CrawlEngine:
                 self.update_stats()
 
     async def crawl_page(self, client: httpx.AsyncClient, url: str, depth: int):
-        self.log("VISIT", f"Crawling page: {url} at depth {depth}")
+        self.log("VISIT", f"Request Initiated -> GET {url} (Depth: {depth})")
         
         status_code = None
         try:
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": self.start_url
             }
             
             response = await client.get(url, headers=headers)
             status_code = response.status_code
             
+            # Extract headers and body diagnostics
+            resp_headers = dict(response.headers)
+            server_header = resp_headers.get("server", "Unknown Server")
+            content_type = resp_headers.get("content-type", "Unknown Content-Type")
+            body_length = len(response.text)
+            
+            self.log("VISIT", f"Response Received -> Status: {status_code} | Server: {server_header} | Content-Type: {content_type} | Length: {body_length} bytes")
+            
+            soup = BeautifulSoup(response.text, "html.parser")
+            page_title = soup.title.string.strip() if soup.title else "No Title"
+            self.log("VISIT", f"Page Parsed -> Title: '{page_title}'")
+
+            # Check for Cloudflare / Turnstile challenges
+            if "cloudflare" in response.text.lower() or "ddos-guard" in response.text.lower() or "turnstile" in response.text.lower() or status_code in [403, 503]:
+                cf_ray = resp_headers.get("cf-ray", "N/A")
+                self.log("ERROR", f"Blocked/Challenge Detected! Title: '{page_title}' | CF-Ray: {cf_ray} | Body Snippet: {response.text[:150].strip().replace('\n', ' ')}...")
+                
             if status_code >= 400:
-                self.log("ERROR", f"HTTP {status_code} returned for {url}")
-                self.save_failed_page(url, depth, f"HTTP Error {status_code}")
+                self.log("ERROR", f"HTTP Error Status {status_code} returned for {url}. Crawl aborted on this node.")
+                self.save_failed_page(url, depth, f"HTTP {status_code} | Title: {page_title}")
                 return
                 
-            # Parse DOM with BeautifulSoup
-            soup = BeautifulSoup(response.text, "html.parser")
-            
             # 1. Scrape standard HTML5 video and source tags
             video_srcs = []
             for video in soup.find_all("video"):
@@ -308,31 +325,26 @@ class CrawlEngine:
                     self.log("VIDEO_FOUND", f"Found {vtype} in DOM video tag: {resolved_src}")
                     self.save_video(url, resolved_src, vtype)
 
-            # 2. Extract iframe embed players (e.g. Vidsrc, dood, streamtape, etc.)
+            # 2. Extract iframe embed players
             for iframe in soup.find_all("iframe", src=True):
                 iframe_src = iframe.get("src")
                 resolved_iframe = urljoin(url, iframe_src)
                 iframe_lower = resolved_iframe.lower()
                 
-                # Check if it looks like a video embed
                 video_embed_keywords = ["embed", "player", "video", "stream", "vidsrc", "dood", "fembed", "tape", "voe", "upstream", "streamtape", "mixdrop", "jwplayer"]
                 is_video_iframe = any(kw in iframe_lower for kw in video_embed_keywords)
                 
                 if is_video_iframe:
-                    # Treat it as EMBED type unless it matches direct video extension
                     vtype = get_video_type(resolved_iframe) or "EMBED"
                     if resolved_iframe not in self.discovered_videos:
                         self.discovered_videos.add(resolved_iframe)
                         self.log("VIDEO_FOUND", f"Found {vtype} embed player in iframe: {resolved_iframe}")
                         self.save_video(url, resolved_iframe, vtype)
             
-            # 3. Regex scan the raw source (HTML + Scripts) for video file URLs
-            # This captures hidden stream links inside JavaScript variable configs (e.g., config.file = 'https://...m3u8')
+            # 3. Regex scan the raw source (HTML + Scripts)
             found_urls = re.findall(r'(https?://[^\s"\'>]+)', response.text)
             for found_url in found_urls:
-                # Clean up escaped backslashes (common in JS variables or JSON objects)
                 cleaned_url = found_url.replace(r'\/', '/').replace('\\', '')
-                # Split off potential JS wrappers or quotes that regex might pull in
                 cleaned_url = cleaned_url.split('"')[0].split("'")[0].split(')')[0].split(']')[0].split('}')[0]
                 
                 vtype = get_video_type(cleaned_url)
@@ -355,7 +367,6 @@ class CrawlEngine:
                 resolved_link = urljoin(url, raw_link)
                 normalized_link = normalize_url(resolved_link)
                 
-                # Check if this link points directly to a video file
                 vtype = get_video_type(resolved_link)
                 if vtype:
                     if resolved_link not in self.discovered_videos:
@@ -364,7 +375,6 @@ class CrawlEngine:
                         self.save_video(url, resolved_link, vtype)
                     continue
                 
-                # Otherwise, check domain & queue recursively
                 if is_same_domain(normalized_link, self.start_url):
                     if normalized_link not in self.visited:
                         self.visited.add(normalized_link)
@@ -375,6 +385,19 @@ class CrawlEngine:
                 else:
                     self.log("SKIP_EXTERNAL", f"Skipped external domain: {resolved_link}")
                     
+        except httpx.ConnectTimeout:
+            err_msg = "Connection timed out. Server or proxy unresponsive."
+            self.log("ERROR", f"Request Failed -> {url} | Timeout: {err_msg}")
+            self.save_failed_page(url, depth, "Connection Timeout")
+        except httpx.SSLError as ssl_err:
+            err_msg = f"SSL/TLS Handshake failed: {str(ssl_err)}"
+            self.log("ERROR", f"Request Failed -> {url} | SSL Error: {err_msg}")
+            self.save_failed_page(url, depth, f"SSL Error: {str(ssl_err)}")
+        except httpx.HTTPStatusError as status_err:
+            err_msg = f"HTTP Status error: {str(status_err)}"
+            self.log("ERROR", f"Request Failed -> {url} | Status Error: {err_msg}")
+            self.save_failed_page(url, depth, f"HTTP Error: {str(status_err)}")
         except Exception as e:
-            self.log("ERROR", f"Error during crawl of {url}: {str(e)}")
-            self.save_failed_page(url, depth, str(e))
+            err_msg = f"Exception: {type(e).__name__} - {str(e)}"
+            self.log("ERROR", f"Request Failed -> {url} | Unhandled Exception: {err_msg}")
+            self.save_failed_page(url, depth, err_msg)
