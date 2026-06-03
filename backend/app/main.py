@@ -29,19 +29,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.post("/crawl/reset")
+def reset_database(db: Session = Depends(get_db)):
+    db.query(CrawlLog).delete()
+    db.query(VideoSource).delete()
+    db.query(CrawledPage).delete()
+    db.query(CrawlSession).delete()
+    db.commit()
+    return {"status": "success", "message": "All database records cleared."}
+
 @app.post("/crawl/start")
 async def start_crawl(
     request: CrawlStartRequest,
     db: Session = Depends(get_db)
 ):
-    # Stop any existing running sessions
-    running_session = db.query(CrawlSession).filter_by(status="running").first()
-    if running_session:
-        running_session.status = "stopped"
-        running_session.completed_at = datetime.utcnow()
-        db.commit()
+    # Completely clear the database for a single-session execution
+    db.query(CrawlLog).delete()
+    db.query(VideoSource).delete()
+    db.query(CrawledPage).delete()
+    db.query(CrawlSession).delete()
+    db.commit()
 
-    # Create new session
+    # Create the single active session
     session = CrawlSession(
         start_url=request.url,
         status="running",

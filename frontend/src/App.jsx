@@ -4,7 +4,7 @@ import StatusPanel from './components/StatusPanel';
 import StatsPanel from './components/StatsPanel';
 import LogPanel from './components/LogPanel';
 import ResultsTable from './components/ResultsTable';
-import { Film, RefreshCw, StopCircle } from 'lucide-react';
+import { Film, RefreshCw, StopCircle, Trash2 } from 'lucide-react';
 
 const getWsUrl = () => {
   const envWs = import.meta.env.VITE_WS_URL;
@@ -203,6 +203,23 @@ export default function App() {
     }
   };
 
+  // Reset/Clear crawl session
+  const handleReset = async () => {
+    try {
+      setLoading(true);
+      await fetch(getApiUrl('/crawl/reset'), { method: 'POST' });
+      setSession(null);
+      setLogs([]);
+      setVideos([]);
+      setElapsed(0);
+      setStats(null);
+    } catch (err) {
+      console.error('Failed to reset crawl data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-brand-500/20">
       {/* Dynamic Header */}
@@ -220,6 +237,15 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleReset}
+              disabled={loading || isRunning}
+              className="px-3.5 py-2 bg-slate-900 border border-slate-800 hover:border-rose-950/40 hover:bg-rose-950/10 text-rose-500 hover:text-rose-400 rounded-xl transition duration-150 disabled:opacity-30 disabled:pointer-events-none flex items-center gap-1.5 text-xs font-semibold"
+              title="Reset Database"
+            >
+              <Trash2 size={14} />
+              Reset
+            </button>
             <button
               onClick={fetchStatus}
               disabled={loading || isRunning}
