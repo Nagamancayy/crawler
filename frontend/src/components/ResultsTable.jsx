@@ -24,6 +24,12 @@ export default function ResultsTable({ videos, crawlId }) {
   const [globalFilter, setGlobalFilter] = useState('');
   const [copiedId, setCopiedId] = useState(null);
 
+  const downloadUrl = (url) => {
+    const envApi = import.meta.env.VITE_API_URL;
+    const baseUrl = envApi ? envApi : (import.meta.env.DEV ? 'http://localhost:8000' : '');
+    return `${baseUrl}/crawl/download?url=${encodeURIComponent(url)}&referer=https://vidzp.com/`;
+  };
+
   const handleCopy = (url, id) => {
     navigator.clipboard.writeText(url);
     setCopiedId(id);
@@ -94,6 +100,16 @@ export default function ResultsTable({ videos, crawlId }) {
                 >
                   <ExternalLink size={12} />
                 </a>
+                {info.row.original.type !== 'EMBED' && (
+                  <a
+                    href={downloadUrl(val)}
+                    download
+                    className="p-1 hover:bg-slate-800 rounded text-emerald-500 hover:text-emerald-400 transition"
+                    title="Download Pure Video"
+                  >
+                    <Download size={12} />
+                  </a>
+                )}
               </div>
             </div>
           );

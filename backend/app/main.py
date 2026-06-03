@@ -304,3 +304,40 @@ def export_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=crawl_results_{session_id}.csv"}
     )
+
+@app.get("/crawl/download")
+async def download_video(url: str, referer: Optional[str] = None):
+    import os
+    import httpx
+    from urllib.parse import urlparse
+    
+    ref = referer or "https://vidzp.com/"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": ref
+    }
+    
+    async def stream_video():
+        async with httpx.AsyncClient(verify=False) as client:
+            try:
+                async with client.stream("GET", url, headers=headers, follow_redirects=True, timeout=60.0) as r:
+                    if r.status_code >= 400:
+                        raise HTTPException(status_code=r.status_code, detail=f"Failed to fetch video stream: HTTP {r.status_code}")
+                    async for chunk in r.iter_bytes(chunk_size=1024 * 64):
+                        yield chunk
+            except Exception as e:
+                print(f"Error streaming video file: {e}")
+                
+    parsed = urlparse(url)
+    filename = os.path.basename(parsed.path) or "video.mp4"
+    if "." not in filename:
+        filename += ".mp4"
+        
+    return StreamingResponse(
+        stream_video(),
+        media_type="video/mp4",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{filename}\"",
+            "Accept-Ranges": "bytes"
+        }
+    )
