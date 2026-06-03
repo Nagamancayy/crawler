@@ -109,6 +109,7 @@ export default function ResultsTable({ videos, crawlId }) {
             HLS: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
             DASH: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
             WEBM: 'bg-violet-500/10 text-violet-400 border border-violet-500/20',
+            EMBED: 'bg-pink-500/10 text-pink-400 border border-pink-500/20',
           };
           const style = colors[val.toUpperCase()] || 'bg-slate-800 text-slate-400 border border-slate-700';
           return (

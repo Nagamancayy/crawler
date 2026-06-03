@@ -1,3 +1,4 @@
+import re
 import asyncio
 from datetime import datetime
 from urllib.parse import urlparse, urlunparse, urljoin
@@ -220,7 +221,6 @@ class CrawlEngine:
         
         self.log("VISIT", f"Starting BFS crawl from URL: {self.start_url} (Max Depth: {self.max_depth}, Max Pages: {self.max_pages}, Workers: {self.concurrent_workers})")
 
-        # Set up an HTTPX client connection pool shared across workers
         limits = httpx.Limits(max_keepalive_connections=self.concurrent_workers, max_connections=self.concurrent_workers * 2)
         async with httpx.AsyncClient(limits=limits, verify=False, follow_redirects=True, timeout=10.0) as client:
             workers = []
@@ -291,7 +291,7 @@ class CrawlEngine:
             # Parse DOM with BeautifulSoup
             soup = BeautifulSoup(response.text, "html.parser")
             
-            # 1. Scrape video and source elements
+            # 1. Scrape standard HTML5 video and source tags
             video_srcs = []
             for video in soup.find_all("video"):
                 if video.get("src"):
@@ -307,8 +307,42 @@ class CrawlEngine:
                     self.discovered_videos.add(resolved_src)
                     self.log("VIDEO_FOUND", f"Found {vtype} in DOM video tag: {resolved_src}")
                     self.save_video(url, resolved_src, vtype)
+
+            # 2. Extract iframe embed players (e.g. Vidsrc, dood, streamtape, etc.)
+            for iframe in soup.find_all("iframe", src=True):
+                iframe_src = iframe.get("src")
+                resolved_iframe = urljoin(url, iframe_src)
+                iframe_lower = resolved_iframe.lower()
+                
+                # Check if it looks like a video embed
+                video_embed_keywords = ["embed", "player", "video", "stream", "vidsrc", "dood", "fembed", "tape", "voe", "upstream", "streamtape", "mixdrop", "jwplayer"]
+                is_video_iframe = any(kw in iframe_lower for kw in video_embed_keywords)
+                
+                if is_video_iframe:
+                    # Treat it as EMBED type unless it matches direct video extension
+                    vtype = get_video_type(resolved_iframe) or "EMBED"
+                    if resolved_iframe not in self.discovered_videos:
+                        self.discovered_videos.add(resolved_iframe)
+                        self.log("VIDEO_FOUND", f"Found {vtype} embed player in iframe: {resolved_iframe}")
+                        self.save_video(url, resolved_iframe, vtype)
             
-            # 2. Extract anchor links
+            # 3. Regex scan the raw source (HTML + Scripts) for video file URLs
+            # This captures hidden stream links inside JavaScript variable configs (e.g., config.file = 'https://...m3u8')
+            found_urls = re.findall(r'(https?://[^\s"\'>]+)', response.text)
+            for found_url in found_urls:
+                # Clean up escaped backslashes (common in JS variables or JSON objects)
+                cleaned_url = found_url.replace(r'\/', '/').replace('\\', '')
+                # Split off potential JS wrappers or quotes that regex might pull in
+                cleaned_url = cleaned_url.split('"')[0].split("'")[0].split(')')[0].split(']')[0].split('}')[0]
+                
+                vtype = get_video_type(cleaned_url)
+                if vtype:
+                    if cleaned_url not in self.discovered_videos:
+                        self.discovered_videos.add(cleaned_url)
+                        self.log("VIDEO_FOUND", f"Found {vtype} in page source script: {cleaned_url}")
+                        self.save_video(url, cleaned_url, vtype)
+            
+            # 4. Extract hyperlinks for BFS queue
             links = []
             for a in soup.find_all("a", href=True):
                 links.append(a.get("href"))
